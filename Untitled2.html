@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sustainability Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.0/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@1.2.1"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.4.0/jspdf.umd.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100vw;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        .container {
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            width: 90%;
+            max-width: 800px;
+            height: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        h1 {
+            color: #4CAF50;
+            margin-bottom: 20px;
+        }
+
+        label {
+            font-size: 1rem;
+            margin-top: 15px;
+            display: block;
+        }
+
+        input, select, button {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 1rem;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        #status {
+            margin-top: 20px;
+            font-size: 1rem;
+        }
+
+        #status.success {
+            color: #4CAF50;
+        }
+
+        #status.error {
+            color: #e74c3c;
+        }
+
+        canvas {
+            flex-grow: 1;
+            background: #fff;
+        }
+
+        #graphWindow {
+            position: relative;
+            background: #fff;
+            border: 1px solid #ccc;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            border-radius: 10px;
+            width: 100%;
+            max-width: 900px;
+            height: auto;
+            display: none;
+            margin-top: 20px;
+        }
+
+        #graphWindow canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .graph-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .graph-controls button {
+            width: auto;
+            height: auto;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 0.9rem;
+        }
+
+        #generateReport {
+            background: #3498db;
+            color: white;
+        }
+
+        #generateReport:hover {
+            background: #2980b9;
+        }
+
+        #closeGraph {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .action-buttons {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Sustainability Dashboard</h1>
+
+        <!-- File Upload -->
+        <label for="fileUpload">Load Dataset</label>
+        <input type="file" id="fileUpload" accept=".csv">
+
+        <!-- Graph Type Selection -->
+        <label for="graphType">Select Graph Type</label>
+        <select id="graphType">
+            <option value="line">Line Chart</option>
+            <option value="bar">Bar Chart</option>
+            <option value="point">Scatter Plot</option>
+        </select>
+
+        <!-- Action Buttons -->
+        <div class="action-buttons">
+            <button id="viewGraph">View Graph</button>
+            <button id="generateReport">Generate Report</button>
+        </div>
+
+        <!-- Status Message -->
+        <div id="status" class="error">No Dataset Loaded</div>
+
+        <!-- Graph Window -->
+        <div id="graphWindow">
+            <div class="graph-controls">
+                <button id="resetZoom">Reset Zoom</button>
+                <button id="saveGraph">Save Graph</button>
+                <button id="closeGraph">Close</button>
+            </div>
+            <canvas id="graphCanvas"></canvas>
+        </div>
+    </div>
+
+    <script>
+        let dataset = [];
+        let chartInstance = null; // Store the current chart instance
+
+        // Load CSV file
+        document.getElementById("fileUpload").addEventListener("change", function(event) {
+            const file = event.target.files[0];
+
+            if (file) {
+                Papa.parse(file, {
+                    header: true,
+                    dynamicTyping: true,
+                    complete: function(results) {
+                        dataset = results.data;
+
+                        if (dataset.length > 0) {
+                            document.getElementById("status").textContent = "Dataset Loaded Successfully!";
+                            document.getElementById("status").className = "success";
+                        } else {
+                            document.getElementById("status").textContent = "Invalid Dataset!";
+                            document.getElementById("status").className = "error";
+                        }
+                    },
+                    error: function() {
+                        document.getElementById("status").textContent = "Failed to parse dataset!";
+                        document.getElementById("status").className = "error";
+                    }
+                });
+            } else {
+                document.getElementById("status").textContent = "No file selected!";
+                document.getElementById("status").className = "error";
+            }
+        });
+
+        // Generate graph
+        document.getElementById("viewGraph").addEventListener("click", function() {
+            const graphType = document.getElementById("graphType").value;
+            if (!dataset.length) {
+                document.getElementById("status").textContent = "No dataset loaded!";
+                document.getElementById("status").className = "error";
+                return;
+            }
+
+            const graphWindow = document.getElementById("graphWindow");
+            const ctx = document.getElementById("graphCanvas").getContext("2d");
+
+            // Destroy the old chart if it exists
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            const dateKey = Object.keys(dataset[0])[0];
+            const paramKeys = Object.keys(dataset[0]).slice(1);
+
+            if (graphType === "point") {
+                const labels = dataset.map(row => row[dateKey] || '');
+                const values = paramKeys.map(key => dataset.map(row => row[key] || 0));
+
+                chartInstance = new Chart(ctx, {
+                    type: "line",
+                    data: {
+                        labels: labels,
+                        datasets: values.map((data, i) => ({
+                            label: paramKeys[i],
+                            data: data,
+                            borderColor: `rgba(${(i * 50) % 255}, ${(i * 100) % 255}, ${(i * 150) % 255}, 1)`
+                            ,
+                            backgroundColor: `rgba(${(i * 50) % 255}, ${(i * 100) % 255}, ${(i * 150) % 255}, 0.5)`
+                            ,
+                            
+                            pointRadius: 3,
+                            showLine: false // Ensures no line is drawn
+                        }))
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            zoom: {
+                                zoom: {
+                                    wheel: { enabled: true },
+                                    pinch: { enabled: true },
+                                    mode: 'x'
+                                },
+                                pan: {
+                                    enabled: true,
+                                    mode: 'x'
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                title: { display: true, text: dateKey },
+                                stacked: true
+                            },
+                            y: {
+                                title: { display: true, text: 'Values' },
+                                stacked: true
+                            }
+                        }
+                    }
+                });
+            } else {
+                const labels = dataset.map(row => row[dateKey] || '');
+                const values = paramKeys.map(key => dataset.map(row => row[key] || 0));
+
+                chartInstance = new Chart(ctx, {
+                    type: graphType,
+                    data: {
+                        labels: labels,
+                        datasets: values.map((data, i) => ({
+                            label: paramKeys[i],
+                            data: data,
+                            borderColor: `rgba(${(i * 50) % 255}, ${(i * 100) % 255}, ${(i * 150) % 255}, 1)`
+                            ,
+                            backgroundColor: `rgba(${(i * 50) % 255}, ${(i * 100) % 255}, ${(i * 150) % 255}, 0.5)`
+                            ,
+                            barThickness: 'flex'
+                        }))
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            zoom: {
+                                zoom: {
+                                    wheel: { enabled: true },
+                                    pinch: { enabled: true },
+                                    mode: 'x'
+                                },
+                                pan: {
+                                    enabled: true,
+                                    mode: 'x'
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                title: { display: true, text: dateKey },
+                                stacked: true
+                            },
+                            y: {
+                                title: { display: true, text: 'Values' },
+                                stacked: true
+                            }
+                        }
+                    }
+                });
+            }
+
+            graphWindow.style.display = "block";
+            document.getElementById("status").textContent = "Graph Generated Successfully!";
+            document.getElementById("status").className = "success";
+        });
+
+        // Save graph as image
+        document.getElementById("saveGraph").addEventListener("click", function() {
+            const canvas = document.getElementById("graphCanvas");
+            const link = document.createElement("a");
+            link.download = "graph.png";
+            link.href = canvas.toDataURL();
+            link.click();
+        });
+
+        // Reset zoom
+        document.getElementById("resetZoom").addEventListener("click", function() {
+            if (chartInstance) {
+                chartInstance.resetZoom();
+            }
+        });
+
+        // Close graph window
+        document.getElementById("closeGraph").addEventListener("click", function() {
+            document.getElementById("graphWindow").style.display = "none";
+        });
+
+        // Generate report as PDF
+        document.getElementById("generateReport").addEventListener("click", async function () {
+    if (!dataset.length) {
+        document.getElementById("status").textContent = "No dataset loaded!";
+        document.getElementById("status").className = "error";
+        return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: "landscape" });
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    const dateKey = Object.keys(dataset[0])[0];
+    const paramKeys = Object.keys(dataset[0]).slice(1);
+
+    // Set canvas size
+    canvas.width = 800;
+    canvas.height = 400;
+
+    const chartLabels = [
+        { index: 0, label: "Line Chart" },
+        { index: 1, label: "Bar Chart" },
+        { index: 2, label: "Scatter Plot" }
+    ];
+
+    for (let chartTypeIndex = 0; chartTypeIndex < 3; chartTypeIndex++) {
+        let chartType = "line";
+        let options = {
+            pointRadius: 0,
+            showLine: true
+        };
+
+        if (chartTypeIndex === 1) {
+            chartType = "bar";
+        } else if (chartTypeIndex === 2) {
+            options = {
+                pointRadius: 3,
+                showLine: false
+            };
+        }
+
+        const datasets = paramKeys.map((key, index) => {
+            return {
+                label: key,
+                data: dataset.map(row => row[key] || 0),
+                borderColor: `rgba(${(index * 50) % 255}, ${(index * 100) % 255}, ${(index * 150) % 255}, 1)`,
+                backgroundColor: `rgba(${(index * 50) % 255}, ${(index * 100) % 255}, ${(index * 150) % 255}, 0.5)`,
+                ...options
+            };
+        });
+
+        const chart = new Chart(ctx, {
+            type: chartType,
+            data: {
+                labels: dataset.map(row => row[dateKey] || ""),
+                datasets: datasets
+            },
+            options: {
+                responsive: false,
+                plugins: {
+                    zoom: false // Disable zoom for PDF export
+                },
+                scales: {
+                    x: {
+                        stacked: true, // Stack bars on top of each other
+                        title: { display: true, text: dateKey }
+                    },
+                    y: {
+                        stacked: true, // Stack bars on top of each other
+                        title: { display: true, text: "Values" }
+                    }
+                }
+            }
+        });
+
+        // Wait for the chart to render
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Add the chart to the PDF
+        pdf.addImage(canvas.toDataURL("image/png"), "PNG", 10, 10, 280, 140); // Adjusted for landscape
+
+        // Add chart type as a caption below the chart
+        pdf.setFontSize(12);
+        const chartLabel = chartLabels.find(label => label.index === chartTypeIndex)?.label || "Chart";
+        pdf.text(`${chartLabel}`, 140, 160, { align: "center" });
+
+        // Destroy the chart to free resources
+        chart.destroy();
+
+        // Add a new page if not the last chart
+        if (chartTypeIndex < 2) {
+            pdf.addPage();
+        }
+    }
+
+    // Save the PDF
+    pdf.save("report.pdf");
+});
+
+    </script>
+</body>
+</html>
